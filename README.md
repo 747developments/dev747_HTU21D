@@ -10,6 +10,9 @@ Enable I2C communication in Raspberry via raspi-config and install dependencies 
 sudo apt-get update
 sudo apt-get install pigpio python3-dev i2c-tools
 pip3 install pigpio
+sudo systemctl enable pigpiod
+sudo systemctl start pigpiod
+sudo pigpiod
 ```
 
 ##Parameters:
