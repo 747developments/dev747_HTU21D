@@ -60,7 +60,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
         ),
 })
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+def setup_platform(hass, config, add_entities, discovery_info=None):
     """Set up the sensor platform."""
 
     # if discovery_info is None:
@@ -69,7 +69,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     i2c_bus_num = config.get(CONF_I2C_BUS_NUM)
     name = config.get(CONF_NAME)
     for monitored_condition in config[CONF_MONITORED_CONDITIONS]:
-        async_add_entities([HTU21D(name, i2c_address, i2c_bus_num, monitored_condition)])
+        add_entities([HTU21D(name, i2c_address, i2c_bus_num, monitored_condition)])
         time.sleep(0.001)
 
 class HTU21D(SensorEntity):
@@ -93,6 +93,9 @@ class HTU21D(SensorEntity):
         self._i2c_address = i2c_address 
         
         self.pi_bus = pigpio.pi()
+        if not self.pi_bus.connected:
+            _LOGGER.error("PIGPIO deamon not running. You need to enable pigpio.")
+            return
         #self._i2c_bus = self.pi_bus.i2c_open(self._i2c_bus_num, self._i2c_address) # open i2c bus
         
         return
@@ -117,13 +120,28 @@ class HTU21D(SensorEntity):
         combined = ((msb << 8) | lsb)
         combined = combined & 0xFFFC
         return combined
+        
+    def openI2C(self):
+        handle = self.pi_bus.i2c_open(self._i2c_bus_num, self._i2c_address) # open i2c bus
+        return handle
+
+    def closeI2C(self, handle):
+        self.pi_bus.i2c_close(handle)
+        return
+        
+    def writeByte(self, handle, message):
+        self.pi_bus.i2c_write_byte(handle, message) 
+        return    
 
     def soft_reset_sensor(self):
         """Soft-reset sensor."""
         try:
-            handle = self.pi_bus.i2c_open(self._i2c_bus_num, self._i2c_address) # open i2c bus
-            self.pi_bus.i2c_write_byte(handle, ADDR_RESET) 
-            self.pi_bus.i2c_close(handle) 
+            handle = self.openI2C()
+            if(handle is None):
+                _LOGGER.error("HTU21D: Soft-reset Unable to open I2C handle")
+                return
+            self.writeByte(handle, ADDR_RESET)
+            self.closeI2C(handle)
             time.sleep(0.1)
         except Exception as ex:
             _LOGGER.error("HTU21D: Exception during soft-reset: %s" % (ex))
@@ -132,12 +150,15 @@ class HTU21D(SensorEntity):
     def get_temperature(self): 
         """Get temperature."""
         
-        handle = self.pi_bus.i2c_open(self._i2c_bus_num, self._i2c_address)
-        self.pi_bus.i2c_write_byte(handle, ADDR_TEMPERATURE)
+        handle = self.openI2C()
+        if(handle is None):
+            _LOGGER.error("HTU21D: Temp: Unable to open I2C handle")
+            return
+        self.writeByte(handle, ADDR_TEMPERATURE)
         time.sleep(0.055)
         (count, byteArray) = self.pi_bus.i2c_read_device(handle, 3)
-        self.pi_bus.i2c_close(handle) 
-        
+        self.closeI2C(handle)
+                
         t1 = byteArray[0]
         t2 = byteArray[1]
         t3 = byteArray[2]
@@ -162,11 +183,14 @@ class HTU21D(SensorEntity):
     def get_humidity(self):
         """Get temperature."""
         
-        handle = self.pi_bus.i2c_open(self._i2c_bus_num, self._i2c_address)
-        self.pi_bus.i2c_write_byte(handle, ADDR_HUMIDITY)
+        handle = self.openI2C()
+        if(handle is None):
+            _LOGGER.error("HTU21D: Temp: Unable to open I2C handle")
+            return
+        self.writeByte(handle, ADDR_HUMIDITY)
         time.sleep(0.055)
         (count, byteArray) = self.pi_bus.i2c_read_device(handle, 3)
-        self.pi_bus.i2c_close(handle) 
+        self.closeI2C(handle)
         
         h1 = byteArray[0]
         h2 = byteArray[1]
@@ -226,7 +250,7 @@ class HTU21D(SensorEntity):
         """Return the icon to use in the frontend."""
         return _SENSOR_TYPES[self._monitored_condition][2]
 
-    async def async_update(self):
+    def update(self):
         self.get_data()
 
     @property
